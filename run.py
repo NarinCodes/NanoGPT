@@ -80,6 +80,27 @@ class Head(nn.Module):
         out = wei @ v
         return out
 
+class MultiHeadAttention(nn.Module):
+    
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+
+    def forward(self, x):
+        return torch.cat([h(x) for h in self.heads], dim=-1)
+
+class FeedForward(nn.Module):
+
+    def __init__(self, n_embd):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(n_embd, n_embd),
+            nn.ReLU(),
+        )
+
+    def forward(self,x):
+        return self.net(x)
+
 # super simple bigram model
 class BigramLanguageModel(nn.Module): 
 
@@ -88,7 +109,8 @@ class BigramLanguageModel(nn.Module):
         # each token directly reads off the logits for the next token from a lookup table
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd) # EDIT 3 - Add interaction layer
         self.position_embedding_table = nn.Embedding(block_size, n_embd) # EDIT 8 - Create Position Embeddings
-        self.sa_head = Head(n_embd) # Note that n_embd is the input "head_size"
+        self.sa_heads = MultiHeadAttention(4, n_embd//4) # Note that n_embd is the input "head_size"
+        self.ffwd = FeedForward(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)  # EDIT 6 - Add linear layer to get final embeddings
 
     def forward(self, idx, targets=None):
@@ -98,7 +120,8 @@ class BigramLanguageModel(nn.Module):
         tok_emb = self.token_embedding_table(idx) # (Batch, Token, Channel)   EDIT 5 - Name the intermediate result and get the intermediate result
         pos_emb = self.position_embedding_table(torch.arange(T, device=device)) # EDIT 10 - Get the position embeddings (Time,Channel)
         x = tok_emb + pos_emb # EDIT 11 - Add position & token embeddings
-        x = self.sa_head(x)
+        x = self.sa_heads(x) # EDIT 12 - Feed the position + token embeddings into the self-attention head
+        x = self.ffwd(x)
         logits = self.lm_head(x) # (B,T,vocab_size)   EDIT 7 - Get logits from intermediate result
 
         if targets is None:
